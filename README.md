@@ -1,73 +1,184 @@
 HEIC Format Plug-in For Adobe Photoshop
 ===
-A plug-in for Photoshop that adds functionality to save the document as HEIC format.
 
-License
----
-This software is written for fun by jdp, 2021 and licensed under GPLv3.
+A plug-in for Photoshop that adds functionality to save documents as HEIC format.
 
-How to use
----
-Copy HEICFormat.plugin to "/Applications/Adobe Photoshop NNNN/Plug-ins/Filters" where NNNN is the major version of Adobe Photoshop. You may need the administrator right to do that.
+## Quick Start
 
-Check 'About plugins' menu to see if the plug-in is activated: a menu item 'HEIC Format...' is added, you can use it to bring up the settings window.
+```bash
+# Install build tools and dependencies
+brew install cmake pkg-config libheif x265
 
-If it is not there, check if the correct permission is set, you can re-enforce it by the following command in the terminal:
+# Build and install LittleCMS 2 with fast float plugin (required)
+curl -L -O https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz
+tar xzf lcms2-2.16.tar.gz && cd lcms2-2.16
+./configure --with-fastfloat && make && sudo make install
 
-```
-xattr -cr "/Applications/Adobe Photoshop NNNN/Plug-ins/Filters/HEICFormat.plugin"
-chmod a+x "/Applications/Adobe Photoshop NNNN/Plug-ins/Filters/HEICFormat.plugin/Contents/MacOS/HEICFormat"
-```
+# Download and extract Adobe Photoshop SDK to ~/src/photoshopsdk
+# Get it from: https://console.adobe.io/downloads
 
-If everything works, you will see 'HEIC Format' in the file type list in the Save As dialog.
-
-Third-party softwares
----
-This software uses the following third-party softwares:
-
-- [libheif][1]
-- [x265][2]
-- [LittleCMS 2][4] and its [fast float plug-in][6]
-
-Use brew to install the development headers and libraries.
-
-```
-brew install libheif x265
+# Build and install
+cd ~/src/HEICFormat
+./build.sh
+./install.sh
 ```
 
-For LittleCMS 2, you must compile from the source code to enable the fast float plugin:
+Restart Photoshop and look for "HEIC Format" in **File → Save As**.
 
+### Key Features
+
+- ✅ **Universal compatibility** - Works on both Intel and Apple Silicon Macs
+- ✅ **All Photoshop versions** - Single installation location for all versions (2020-2026+)
+- ✅ **Automatic configuration** - Detects architecture and finds all dependencies
+- ✅ **Self-contained** - All libraries statically linked, no runtime dependencies
+
+## Usage
+
+After installing and restarting Photoshop:
+
+1. **File → Save As** - Select "HEIC Format" from the format dropdown
+2. **Help → About Plug-ins** - Look for "HEIC Format..." to verify installation
+
+### Troubleshooting
+
+If the plugin doesn't appear:
+
+```bash
+# Verify installation
+./check_plugin.sh
+
+# Or manually check
+ls -la "/Library/Application Support/Adobe/Plug-Ins/CC/File Formats/HEICFormat.plugin"
+
+# Clear Photoshop plugin cache
+rm -rf ~/Library/Caches/Adobe/Photoshop*/PluginCache
 ```
+
+Make sure to **completely quit and restart Photoshop** (Cmd+Q, not just close windows).
+
+## Building from Source
+
+### Prerequisites
+
+- [Adobe Photoshop SDK][5] (download from Adobe Console)
+- [libheif][1], [x265][2], [LittleCMS 2][4] with [fast float plug-in][6]
+- CMake 3.15+ and pkg-config
+- Xcode Command Line Tools
+
+### Build Instructions
+
+#### 1. Install Build Tools and Dependencies
+
+```bash
+# Install build tools
+brew install cmake pkg-config
+
+# Install dependencies
+brew install libheif x265 little-cms2
+```
+
+#### 2. Build LittleCMS 2 with Fast Float Plugin
+
+The fast float plugin is required but not included in the Homebrew version:
+
+```bash
+cd ~/Downloads
+curl -L -O https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz
+tar xzf lcms2-2.16.tar.gz
+cd lcms2-2.16
 ./configure --with-fastfloat
-make && make install
+make
+sudo make install
 ```
 
-This software is under the framework of [Adobe Photoshop SDK][5], you must download it to compile the source code.
+#### 3. Install Adobe Photoshop SDK
 
-Notes about Options
----
-- Reveal in Finder: only works when saving to a new file. Not working when to overwrite an existing file.
-- Always convert to sRGB: this will override the 'Embed color profile' in the 'Save As' dialog.
-- Don't ask me every time: quiet mode, use the settings for the HEIC encoder. If you want to change the settings, you can use the menu by visiting 'About Plugins -> HEIC Format...'.
+Download the Adobe Photoshop SDK from [Adobe Console][5] and extract:
 
-Features
----
-- Works as Photoshop plug-in with a simple settings UI.
-- Compatible with OS/X's Preview and iPhone's Photo.
-- Exports to HEIC format.
-- Adjustable quality (0-100).
-- Keeps alpha channel or not.
-- Keeps color profile or not.
-- Keeps EXIF and XMP data or not.
-- Converts to sRGB.
+```bash
+mkdir -p ~/src
+cd ~/src
+# Extract your downloaded SDK archive here
+# It typically creates a folder containing pluginsdk/photoshopapi/
+```
 
-Limitations and todo's
----
-- Currently for OS/X or macOS 10.13+ only. Windows version to be done.
-- Uses the default settings and preset of x.265. Currently not customizable.
-- No thumbnails support.
-- Will crash Photoshop 22.3 if color profile is embedded (not my bug). Convert to sRGB to avoid.
-- Not scriptable, yet.
+Expected structure:
+```
+~/src/
+├── HEICFormat/                    # This repository
+└── photoshopsdk/                  # Extracted SDK
+    └── pluginsdk/
+        └── photoshopapi/
+            ├── photoshop/
+            ├── pica_sp/
+            └── ...
+```
+
+**Note:** If your SDK is in a different location, specify it when building:
+```bash
+cmake -B build -DPHOTOSHOP_SDK_PATH=/path/to/sdk/pluginsdk/photoshopapi
+```
+
+#### 4. Build and Install
+
+```bash
+cd ~/src/HEICFormat
+./build.sh     # Builds for your Mac's architecture automatically
+./install.sh   # Installs to shared Adobe directory
+```
+
+**Installation location:**
+```
+/Library/Application Support/Adobe/Plug-Ins/CC/File Formats/HEICFormat.plugin
+```
+
+This location works for **all Adobe Photoshop versions** automatically (2020-2026+).
+
+Restart Photoshop and the plugin will appear in **File → Save As**.
+
+### Advanced Options
+
+```bash
+./build.sh --help        # Show all options
+./build.sh --debug       # Build debug version
+./build.sh --arch arm64  # Force specific architecture
+./build.sh --clean       # Clean build
+
+./check_plugin.sh        # Verify plugin installation
+```
+
+## Additional Documentation
+
+- [CMAKE_BUILD.md](CMAKE_BUILD.md) - Detailed CMake reference and troubleshooting
+- [SDK_SETUP.md](SDK_SETUP.md) - Adobe Photoshop SDK setup guide
+- `./check_plugin.sh` - Diagnostic tool to verify plugin installation
+
+## Features
+
+- Exports Photoshop documents to HEIC format
+- Adjustable quality (0-100)
+- Optional alpha channel support
+- Color profile embedding (or convert to sRGB)
+- Preserves EXIF and XMP metadata
+- Compatible with macOS Preview and iOS Photos
+
+### Plugin Options
+
+- **Reveal in Finder** - Opens file location after saving (new files only)
+- **Always convert to sRGB** - Overrides color profile embedding
+- **Don't ask every time** - Uses saved settings (change via Help → About Plug-ins → HEIC Format)
+
+## Limitations
+
+- macOS only (10.13+) - Windows version not yet implemented
+- Uses default x265 settings (not customizable)
+- No thumbnail generation
+- Not scriptable yet
+- May crash Photoshop 22.3 if embedding color profiles (Adobe bug, use sRGB conversion instead)
+
+## License
+
+GPLv3 - Written for fun by jdp, 2021
 
 [1]: https://github.com/strukturag/libheif
 [2]: https://www.videolan.org/developers/x265.html
