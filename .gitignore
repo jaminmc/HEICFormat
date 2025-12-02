@@ -2,6 +2,12 @@
 build/
 build-*/
 
+# Distribution packages
+heic-format-distribution/
+heic-format-v*/
+*.zip
+*.tar.gz
+
 # Xcode
 *.xcuserstate
 *.xcworkspace
@@ -27,5 +33,11 @@ install_manifest.txt
 
 # Downloaded dependencies
 lcms2-*/
-*.tar.gz
-*.zip
+
+# Logs
+*.log
+/tmp/heic.log
+
+# Temporary files
+COMMIT_MESSAGE.txt
+do_commit.sh

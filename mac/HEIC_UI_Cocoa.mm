@@ -7,29 +7,89 @@
 #include "HEIC_UI.h"
 #include "HEIC_log.h"
 #import "HEIC_UI_Controller.h"
+#include "PIFormat.h"
 
 bool HEIC_UI(const void *userdata) {
-	bool result = false;
-	Class controllerClass = [[NSBundle bundleWithIdentifier:@"com.jdp.heic"] classNamed:@"HEIC_UI_Controller"];
-    if (!controllerClass) return false;
+    // Create an autorelease pool for all autoreleased objects
+    // This is critical in MRC - NIB loading creates many autoreleased objects
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    
+    bool result = false;
+    HEIC_UI_Controller *controller = nil;
+    NSWindow *window = nil;
+    
+    @try {
+        // Get the controller class from the bundle
+        Class controllerClass = [[NSBundle bundleWithIdentifier:@"com.jdp.heic"] classNamed:@"HEIC_UI_Controller"];
+        if (!controllerClass) {
+            xlog("HEIC_UI: ERROR - Could not find HEIC_UI_Controller class\n");
+            return false;
+        }
 
-    HEIC_UI_Controller *controller = [[controllerClass alloc] init];
-    if (!controller) return false;
+        // Allocate and initialize the controller (loads NIB and sets up UI)
+        controller = [[controllerClass alloc] init];
+        if (!controller) {
+            xlog("HEIC_UI: ERROR - Could not initialize controller\n");
+            return false;
+        }
+        
+        // Check if document has alpha channels
+        // userdata is a FormatRecordPtr (or NULL for About dialog)
+        BOOL hasAlpha = YES;  // Default to YES for About dialog
+        if (userdata != nullptr) {
+            FormatRecordPtr formatRecord = (FormatRecordPtr)userdata;
+            // planes >= 4 means RGBA data is available
+            hasAlpha = (formatRecord->planes >= 4);
+        }
+        
+        // Tell the controller whether alpha is available
+        [controller setHasAlpha:hasAlpha];
 
-    NSWindow *window = [controller getWindow];
-    if (window) {
-        NSInteger modal = NSRunContinuesResponse;
-        DialogResult res = DIALOG_RESULT_INVALID;
-        NSModalSession modal_session = [NSApp beginModalSessionForWindow:window];
-        do {
-            modal = [NSApp runModalSession:modal_session];
-            res = [controller getResult];
-        } while (res == DIALOG_RESULT_INVALID && modal == NSRunContinuesResponse);
-        [NSApp endModalSession:modal_session];
+        // Get the window
+        window = [controller getWindow];
+        if (!window) {
+            xlog("HEIC_UI: ERROR - Could not get window from controller\n");
+            return false;
+        }
 
-        result = (res == DIALOG_RESULT_OK || modal == NSRunStoppedResponse);
-        [window close];
+        // Show the window and run modally
+        [window makeKeyAndOrderFront:nil];
+
+        // Run the modal session
+        NSModalSession session = [NSApp beginModalSessionForWindow:window];
+        
+        DialogResult dialogResult = DIALOG_RESULT_INVALID;
+        NSInteger modalResult = NSModalResponseContinue;
+        
+        while (dialogResult == DIALOG_RESULT_INVALID && modalResult == NSModalResponseContinue) {
+            modalResult = [NSApp runModalSession:session];
+            dialogResult = [controller getResult];
+        }
+        
+        [NSApp endModalSession:session];
+
+        // Determine result
+        result = (dialogResult == DIALOG_RESULT_OK);
+        
+        // Close and order out the window before releasing the controller
+        [window orderOut:nil];
     }
-    [controller release];
+    @catch (NSException *exception) {
+        xlog("HEIC_UI: EXCEPTION - %s: %s\n", 
+             [[exception name] UTF8String], 
+             [[exception reason] UTF8String]);
+        result = false;
+    }
+    @finally {
+        // Release the controller - this will release topLevelObjects and deallocate everything
+        if (controller) {
+            [controller release];
+            controller = nil;
+        }
+        
+        // Drain the autorelease pool
+        [pool drain];
+    }
+    
 	return result;
 }

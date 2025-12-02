@@ -46,16 +46,36 @@ echo "Installing to shared Adobe plugin directory..."
 echo -e "${BLUE}Location:${NC} ${ADOBE_PLUGIN_DIR}"
 echo ""
 
-# Check if plugin was built
-if [ ! -d "${BUILD_DIR}/HEICFormat.plugin" ]; then
-    echo -e "${RED}Error: Plugin not found at ${BUILD_DIR}/HEICFormat.plugin${NC}"
+# Find the plugin - check multiple locations for flexibility
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PLUGIN_SOURCE=""
+
+# Check 1: build/HEICFormat.plugin in current directory (development mode)
+if [ -d "${BUILD_DIR}/HEICFormat.plugin" ]; then
+    PLUGIN_SOURCE="${BUILD_DIR}/HEICFormat.plugin"
+    echo -e "${BLUE}Found plugin:${NC} ${PLUGIN_SOURCE} (development build)"
+# Check 2: HEICFormat.plugin in script's directory (distributed with script)
+elif [ -d "${SCRIPT_DIR}/HEICFormat.plugin" ]; then
+    PLUGIN_SOURCE="${SCRIPT_DIR}/HEICFormat.plugin"
+    echo -e "${BLUE}Found plugin:${NC} ${PLUGIN_SOURCE} (bundled with installer)"
+# Check 3: HEICFormat.plugin in current directory (simple distribution)
+elif [ -d "./HEICFormat.plugin" ]; then
+    PLUGIN_SOURCE="./HEICFormat.plugin"
+    echo -e "${BLUE}Found plugin:${NC} ${PLUGIN_SOURCE} (current directory)"
+else
+    echo -e "${RED}Error: HEICFormat.plugin not found!${NC}"
     echo ""
-    echo "Please build the plugin first:"
-    echo -e "  ${YELLOW}./build.sh${NC}"
+    echo "Searched in:"
+    echo "  1. ${BUILD_DIR}/HEICFormat.plugin (development build)"
+    echo "  2. ${SCRIPT_DIR}/HEICFormat.plugin (bundled with installer)"
+    echo "  3. ./HEICFormat.plugin (current directory)"
+    echo ""
+    echo "Please either:"
+    echo -e "  - Build the plugin first: ${YELLOW}./build.sh${NC}"
+    echo -e "  - Place HEICFormat.plugin in the same directory as this script"
     exit 1
 fi
 
-echo -e "${BLUE}Plugin:${NC} ${BUILD_DIR}/HEICFormat.plugin"
 echo ""
 
 # Check if running as root
@@ -83,7 +103,7 @@ fi
 
 # Copy plugin
 echo "Installing plugin..."
-cp -R "${BUILD_DIR}/HEICFormat.plugin" "$ADOBE_PLUGIN_DIR/"
+cp -R "${PLUGIN_SOURCE}" "$ADOBE_PLUGIN_DIR/"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}✗ Failed to copy plugin${NC}"

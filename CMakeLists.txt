@@ -47,28 +47,29 @@ message(STATUS "Found x265: ${X265_LIBDIR}")
 pkg_check_modules(LCMS2 REQUIRED lcms2)
 message(STATUS "Found lcms2: ${LCMS2_LIBDIR}")
 
-# Check for fast float plugin
-set(LCMS2_FAST_FLOAT_LIB "${LCMS2_LIBDIR}/liblcms2_fast_float.a")
-if(EXISTS "${LCMS2_FAST_FLOAT_LIB}")
-    message(STATUS "Found liblcms2_fast_float at ${LCMS2_FAST_FLOAT_LIB}")
-    set(HAVE_LCMS2_FAST_FLOAT TRUE)
-else()
-    # Try /usr/local/lib
-    set(LCMS2_FAST_FLOAT_LIB "/usr/local/lib/liblcms2_fast_float.a")
-    if(EXISTS "${LCMS2_FAST_FLOAT_LIB}")
-        message(STATUS "Found liblcms2_fast_float at ${LCMS2_FAST_FLOAT_LIB}")
+# Check for fast float plugin (optional optimization)
+set(LCMS2_FAST_FLOAT_LIB "")
+set(HAVE_LCMS2_FAST_FLOAT FALSE)
+
+# Try to find fast_float plugin in common locations
+set(FAST_FLOAT_PATHS
+    "${LCMS2_LIBDIR}/liblcms2_fast_float.a"
+    "/opt/homebrew/lib/liblcms2_fast_float.a"
+    "/usr/local/lib/liblcms2_fast_float.a"
+    "$ENV{HOME}/lib/liblcms2_fast_float.a"
+)
+
+foreach(path ${FAST_FLOAT_PATHS})
+    if(EXISTS "${path}")
+        set(LCMS2_FAST_FLOAT_LIB "${path}")
         set(HAVE_LCMS2_FAST_FLOAT TRUE)
-    else()
-        # Try to find in ~/lib
-        set(LCMS2_FAST_FLOAT_LIB "$ENV{HOME}/lib/liblcms2_fast_float.a")
-        if(EXISTS "${LCMS2_FAST_FLOAT_LIB}")
-            message(STATUS "Found liblcms2_fast_float at ${LCMS2_FAST_FLOAT_LIB}")
-            set(HAVE_LCMS2_FAST_FLOAT TRUE)
-        else()
-            message(WARNING "liblcms2_fast_float.a not found. You need to compile lcms2 with --with-fastfloat")
-            set(HAVE_LCMS2_FAST_FLOAT FALSE)
-        endif()
+        message(STATUS "Found liblcms2_fast_float (optional optimization): ${path}")
+        break()
     endif()
+endforeach()
+
+if(NOT HAVE_LCMS2_FAST_FLOAT)
+    message(STATUS "liblcms2_fast_float not found - using standard lcms2 (plugin will work fine)")
 endif()
 
 # Find Cocoa framework
@@ -155,11 +156,23 @@ target_compile_options(HEICFormat PRIVATE
     $<$<CONFIG:Release>:-DNDEBUG>
 )
 
+# Add fast_float define if available
+if(HAVE_LCMS2_FAST_FLOAT)
+    target_compile_definitions(HEICFormat PRIVATE HAVE_LCMS2_FAST_FLOAT)
+endif()
+
 # Link libraries statically to avoid runtime dependency issues
 # Find static libraries
 find_library(LIBHEIF_STATIC NAMES libheif.a PATHS ${LIBHEIF_LIBDIR} NO_DEFAULT_PATH)
 find_library(X265_STATIC NAMES libx265.a PATHS ${X265_LIBDIR} NO_DEFAULT_PATH)
-find_library(LCMS2_STATIC NAMES liblcms2.a PATHS ${LCMS2_LIBDIR} NO_DEFAULT_PATH)
+# Find static lcms2 (check Homebrew locations too)
+find_library(LCMS2_STATIC NAMES liblcms2.a 
+    PATHS 
+        ${LCMS2_LIBDIR}
+        /opt/homebrew/lib
+        /usr/local/lib
+    NO_DEFAULT_PATH
+)
 
 # Find libheif's dependencies
 find_library(LIBDE265_STATIC NAMES libde265.a PATHS /opt/homebrew/opt/libde265/lib /usr/local/lib)
@@ -191,10 +204,14 @@ target_link_libraries(HEICFormat PRIVATE
     ${LIBHEIF_STATIC}
     ${X265_STATIC}
     ${LCMS2_STATIC}
-    ${LCMS2_FAST_FLOAT_LIB}
     "-framework CoreFoundation"
     "-framework ApplicationServices"
 )
+
+# Link fast_float plugin if available (optional optimization)
+if(HAVE_LCMS2_FAST_FLOAT AND LCMS2_FAST_FLOAT_LIB)
+    target_link_libraries(HEICFormat PRIVATE ${LCMS2_FAST_FLOAT_LIB})
+endif()
 
 # Add optional static dependencies if found
 if(LIBDE265_STATIC)
@@ -257,13 +274,14 @@ else()
 endif()
 
 # Copy XIB file to bundle
+# Compile XIB to NIB using ibtool
 add_custom_command(TARGET HEICFormat POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
             $<TARGET_BUNDLE_DIR:HEICFormat>/Contents/Resources
-    COMMAND ${CMAKE_COMMAND} -E copy
+    COMMAND ibtool --compile
+            $<TARGET_BUNDLE_DIR:HEICFormat>/Contents/Resources/HEIC_UI.nib
             ${CMAKE_SOURCE_DIR}/mac/HEIC_UI.xib
-            $<TARGET_BUNDLE_DIR:HEICFormat>/Contents/Resources/
-    COMMENT "Copying XIB to bundle"
+    COMMENT "Compiling XIB to NIB"
 )
 
 # Handle exports file for symbol visibility
@@ -338,9 +356,9 @@ message(STATUS "libheif: ${LIBHEIF_LIBDIR}")
 message(STATUS "x265: ${X265_LIBDIR}")
 message(STATUS "lcms2: ${LCMS2_LIBDIR}")
 if(HAVE_LCMS2_FAST_FLOAT)
-    message(STATUS "lcms2_fast_float: ${LCMS2_FAST_FLOAT_LIB}")
+    message(STATUS "lcms2_fast_float: ${LCMS2_FAST_FLOAT_LIB} (optimization enabled)")
 else()
-    message(STATUS "lcms2_fast_float: NOT FOUND (plugin may not work properly)")
+    message(STATUS "lcms2_fast_float: NOT FOUND (using standard lcms2 - plugin works fine)")
 endif()
 message(STATUS "================================")
 message(STATUS "")

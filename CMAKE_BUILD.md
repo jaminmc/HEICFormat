@@ -150,13 +150,13 @@ Standard installation:
 brew install little-cms2
 ```
 
-### LittleCMS 2 Fast Float Plugin
+### LittleCMS 2 Fast Float Plugin (Optional)
 
-This is **required** but not included in Homebrew. The CMake system checks:
-1. In the same directory as `liblcms2.a`
-2. In `~/lib/liblcms2_fast_float.a`
+The fast_float plugin is an **optional optimization** that provides faster color conversions. The plugin works perfectly without it.
 
-Build from source:
+**Homebrew's lcms2 is sufficient** - no need to build from source unless you want the optimization.
+
+If you want the fast_float optimization, build from source:
 ```bash
 cd ~/Downloads
 curl -L -O https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz
@@ -166,6 +166,12 @@ cd lcms2-2.16
 make
 sudo make install
 ```
+
+The CMake system automatically checks for it in:
+1. `/opt/homebrew/lib/liblcms2_fast_float.a` (Homebrew ARM64)
+2. `/usr/local/lib/liblcms2_fast_float.a` (Homebrew Intel)
+3. Same directory as `liblcms2.a`
+4. `~/lib/liblcms2_fast_float.a`
 
 ## Build Targets
 
@@ -272,13 +278,15 @@ cmake -B build -DPHOTOSHOP_SDK_PATH=/your/custom/path
 
 ### Fast Float Plugin not found
 
-**Warning:**
+**Message:**
 ```
-liblcms2_fast_float.a not found
+liblcms2_fast_float not found - using standard lcms2 (plugin works fine)
 ```
 
 **Solution:**
-This is a warning, but the plugin requires it. Build lcms2 from source:
+This is **not an error** - the plugin works perfectly without it. The fast_float plugin is an optional optimization.
+
+If you want the optimization, build lcms2 from source:
 ```bash
 cd ~/Downloads
 curl -L -O https://downloads.sourceforge.net/project/lcms/lcms/2.16/lcms2-2.16.tar.gz

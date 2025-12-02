@@ -10,26 +10,35 @@
 
 #include "HEIC_UI.h"
 
-typedef enum {
+// Modern Objective-C enum declaration
+typedef NS_ENUM(NSInteger, DialogResult) {
 	DIALOG_RESULT_OK = 0,
 	DIALOG_RESULT_CANCEL = 1,
     DIALOG_RESULT_INVALID = -1
-} DialogResult;
+};
 
 @interface HEIC_UI_Controller : NSObject {
+    // UI outlets - in MRC these are weak references, actual retention is via topLevelObjects
     IBOutlet NSWindow *theWindow;
-    IBOutlet NSMatrix *alphaMatrix;
 	IBOutlet NSSlider *quantizeSlider;
 	IBOutlet NSTextField *sliderLabel;
     IBOutlet NSTextField *qualityEdit;
+    IBOutlet NSButton *saveTransparencyCheckbox;
     IBOutlet NSButton *saveExifCheckbox;
     IBOutlet NSButton *saveXmpCheckbox;
 	IBOutlet NSButton *revealInFinderCheckbox;
     IBOutlet NSButton *quietCheckbox;
     IBOutlet NSButton *convertToSRGBCheckbox;
+    
+    // State
 	DialogResult theResult;
+    
+    // Top-level NIB objects - retained to keep all UI elements alive
+    NSArray *topLevelObjects;
 }
+
 - (id)init;
+- (void)dealloc;
 
 - (IBAction)clickedOK:(id)sender;
 - (IBAction)clickedCancel:(id)sender;
@@ -39,5 +48,6 @@ typedef enum {
 - (IBAction)trackQualityValue:(id)sender;
 
 - (NSWindow *)getWindow;
+- (void)setHasAlpha:(BOOL)hasAlpha;
 
 @end

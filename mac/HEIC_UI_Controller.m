@@ -8,7 +8,6 @@
 
 #include "HEIC_log.h"
 
-NSString* kKeyHEICAlpha = @"HEIC_Alpha";
 NSString* kKeyHEICQuality = @"HEIC_Quality";
 NSString* kKeyHEICSaveExif = @"HEIC_SaveExif";
 NSString* kKeyHEICSaveXmp = @"HEIC_SaveXmp";
@@ -20,7 +19,6 @@ NSString* kVendorDomain = @"com.jdp.heic";
 void loadOptions(HEICParam* opt) {
     NSUserDefaults* def = [[NSUserDefaults alloc] initWithSuiteName:kVendorDomain];
     [def registerDefaults:@{
-        kKeyHEICAlpha : @0,
         kKeyHEICQuality : @55,
         kKeyHEICSaveExif : @YES,
         kKeyHEICSaveXmp : @YES,
@@ -29,70 +27,119 @@ void loadOptions(HEICParam* opt) {
         kKeyHEICConvertToSRGB : @NO,
     }];
 
-    opt->alpha = [def integerForKey:kKeyHEICAlpha];
     opt->quality = [def integerForKey:kKeyHEICQuality];
     opt->saveExif = [def boolForKey:kKeyHEICSaveExif];
     opt->saveXmp = [def boolForKey:kKeyHEICSaveXmp];
     opt->revealInFinder = [def boolForKey:kKeyHEICRevealInFinder];
     opt->quiet = [def boolForKey:kKeyHEICQuiet];
     opt->convertToSRGB = [def boolForKey:kKeyHEICConvertToSRGB];
+    
+    // Per-export options (not saved in preferences)
+    opt->saveTransparency = YES;  // Default to YES
+    opt->hasAlpha = NO;           // Will be set by the caller
 
     if (opt->quality < 1 || opt->quality > 100) opt->quality = 50;
-    if (opt->alpha < 0 || opt->alpha > 1) opt->alpha = 0;
+    
+    [def release];
 }
 
 void saveOptions(const HEICParam* opt) {
     NSUserDefaults* def = [[NSUserDefaults alloc] initWithSuiteName:kVendorDomain];
-    [def setInteger:opt->alpha forKey:kKeyHEICAlpha];
     [def setInteger:opt->quality forKey:kKeyHEICQuality];
     [def setBool:opt->saveExif forKey:kKeyHEICSaveExif];
     [def setBool:opt->saveXmp forKey:kKeyHEICSaveXmp];
     [def setBool:opt->revealInFinder forKey:kKeyHEICRevealInFinder];
     [def setBool:opt->quiet forKey:kKeyHEICQuiet];
     [def setBool:opt->convertToSRGB forKey:kKeyHEICConvertToSRGB];
+    // Note: saveTransparency is NOT saved - it's a per-export decision
+    [def release];
 }
 
 @implementation HEIC_UI_Controller
 
 - (id)init {
 	self = [super init];
+    if (!self) {
+        return nil;
+    }
 
-	if (!([NSBundle loadNibNamed:@"HEIC_UI" owner:self])) return nil;
+    // Get the plugin bundle
+    NSBundle *pluginBundle = [NSBundle bundleForClass:[self class]];
+    if (!pluginBundle) {
+        xlog("HEIC_UI_Controller: ERROR - Could not get plugin bundle\n");
+        [self release];
+        return nil;
+    }
+    
+    // Load the NIB file
+    // In MRC, loadNibNamed returns an autoreleased array, and the objects in it are also autoreleased
+    // We MUST retain the array to keep all objects alive
+    NSArray *nibObjects = nil;
+    if (![pluginBundle loadNibNamed:@"HEIC_UI" owner:self topLevelObjects:&nibObjects]) {
+        xlog("HEIC_UI_Controller: ERROR - Failed to load NIB\n");
+        [self release];
+        return nil;
+    }
+    
+    // Retain the top-level objects - this keeps everything alive
+    topLevelObjects = [nibObjects retain];
+    
+    if (!theWindow) {
+        xlog("HEIC_UI_Controller: ERROR - Window outlet not connected\n");
+        [topLevelObjects release];
+        topLevelObjects = nil;
+        [self release];
+        return nil;
+    }
 
+    // Load saved options
     HEICParam opt;
     loadOptions(&opt);
 
-    [alphaMatrix selectCellAtRow:opt.alpha column:0];
+    // Set UI values
     [qualityEdit setIntegerValue:opt.quality];
     [quantizeSlider setIntegerValue:opt.quality];
-    [saveExifCheckbox setState:opt.saveExif ? NSOnState : NSOffState];
-    [saveXmpCheckbox setState:opt.saveXmp ? NSOnState : NSOffState];
-    [revealInFinderCheckbox setState:opt.revealInFinder ? NSOnState : NSOffState];
-    [quietCheckbox setState:opt.quiet ? NSOnState : NSOffState];
-    [convertToSRGBCheckbox setState:opt.convertToSRGB ? NSOnState : NSOffState];
+    [saveTransparencyCheckbox setState:opt.saveTransparency ? NSControlStateValueOn : NSControlStateValueOff];
+    [saveExifCheckbox setState:opt.saveExif ? NSControlStateValueOn : NSControlStateValueOff];
+    [saveXmpCheckbox setState:opt.saveXmp ? NSControlStateValueOn : NSControlStateValueOff];
+    [revealInFinderCheckbox setState:opt.revealInFinder ? NSControlStateValueOn : NSControlStateValueOff];
+    [quietCheckbox setState:opt.quiet ? NSControlStateValueOn : NSControlStateValueOff];
+    [convertToSRGBCheckbox setState:opt.convertToSRGB ? NSControlStateValueOn : NSControlStateValueOff];
 
     [self trackQuantQuality:self];
 	[theWindow center];
     theResult = DIALOG_RESULT_INVALID;
+    
 	return self;
+}
+
+- (void)dealloc {
+    // Release the top-level objects array
+    [topLevelObjects release];
+    topLevelObjects = nil;
+    
+    [super dealloc];
 }
 
 - (IBAction)clickedOK:(id)sender {
     HEICParam opt;
-    opt.alpha = [alphaMatrix selectedRow];
     opt.quality = [qualityEdit integerValue];
-    opt.saveExif = [saveExifCheckbox state] == NSOnState;
-    opt.saveXmp = [saveXmpCheckbox state] == NSOnState;
-    opt.revealInFinder = [revealInFinderCheckbox state] == NSOnState;
-    opt.quiet = [quietCheckbox state] == NSOnState;
-    opt.convertToSRGB = [convertToSRGBCheckbox state] == NSOnState;
-
+    opt.saveTransparency = [saveTransparencyCheckbox state] == NSControlStateValueOn;
+    opt.saveExif = [saveExifCheckbox state] == NSControlStateValueOn;
+    opt.saveXmp = [saveXmpCheckbox state] == NSControlStateValueOn;
+    opt.revealInFinder = [revealInFinderCheckbox state] == NSControlStateValueOn;
+    opt.quiet = [quietCheckbox state] == NSControlStateValueOn;
+    opt.convertToSRGB = [convertToSRGBCheckbox state] == NSControlStateValueOn;
+    
     saveOptions(&opt);
+    
 	theResult = DIALOG_RESULT_OK;
+    [NSApp stopModal];
 }
 
 - (IBAction)clickedCancel:(id)sender {
     theResult = DIALOG_RESULT_CANCEL;
+    [NSApp stopModal];
 }
 
 - (DialogResult)getResult {
@@ -100,15 +147,8 @@ void saveOptions(const HEICParam* opt) {
 }
 
 - (IBAction)trackQuantQuality:(id)sender {
-	const NSInteger quality = [quantizeSlider integerValue];
-
-	NSString *quality_string = (quality == 100 ? @"Highest Quality" :
-								quality > 75 ? @"High Quality" :
-                                quality > 50 ? @"Medium Quality" :
-								quality > 25 ? @"Low Quality" :
-								@"Lowest Quality"
-								);
-										
+	NSInteger quality = [quantizeSlider integerValue];
+    NSString* quality_string = [NSString stringWithFormat:@"Quality: %ld", (long)quality];
 	[sliderLabel setStringValue:quality_string];
     [qualityEdit setIntegerValue:quality];
 }
@@ -125,7 +165,19 @@ void saveOptions(const HEICParam* opt) {
 }
 
 - (NSWindow *)getWindow {
-	return theWindow;
+    return theWindow;
+}
+
+- (void)setHasAlpha:(BOOL)hasAlpha {
+    // Hide and disable the transparency checkbox if no alpha is available
+    if (!hasAlpha) {
+        [saveTransparencyCheckbox setEnabled:NO];
+        [saveTransparencyCheckbox setState:NSControlStateValueOff];
+        [saveTransparencyCheckbox setHidden:YES];
+    } else {
+        [saveTransparencyCheckbox setEnabled:YES];
+        [saveTransparencyCheckbox setHidden:NO];
+    }
 }
 
 @end

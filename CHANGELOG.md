@@ -1,8 +1,113 @@
 # Changelog
 
-## 2024-12-01 - CMake Build System & Apple Silicon Support
+## Version 0.1.1 - December 1, 2025
 
-### Major Changes
+### Smart Installer & Transparency Control
+
+### Installer Improvements
+
+- **Smart Plugin Detection** - `install.sh` now automatically finds the plugin in multiple locations:
+  - `build/HEICFormat.plugin` (development mode - building from source)
+  - Same directory as `install.sh` (distribution mode - bundled with installer)
+  - Current directory (simple distribution mode)
+- **Easy Distribution** - Plugin can now be distributed as a simple folder with `HEICFormat.plugin` and `install.sh` together
+- **Better Error Messages** - Shows all searched locations if plugin is not found
+
+### Per-Export Transparency Control
+
+- **Per-Export Transparency Toggle** - Choose whether to save transparency each time you export
+  - New "Save Transparency" checkbox in the export dialog
+  - Checked (default): Saves transparency when document has alpha channels
+  - Unchecked: Flattens image to RGB, no transparency saved
+  - Choice is made per-export, not saved as a global preference
+  - Gives users full control on every save
+
+### UI Changes
+
+- Replaced "Auto-detect Transparency" preference with per-export "Save Transparency" option
+- Checkbox appears in export dialog (File → Save As)
+- **Smart visibility:** Checkbox is automatically hidden when document has no transparency
+- NOT in preferences dialog (Help → About Plug-ins) - it's a per-export decision
+
+### Technical Details
+
+- Added `saveTransparency` field to `HEICParam` struct (transient, not persisted)
+- Added `hasAlpha` field to detect transparency availability
+- UI controller checks `formatRecord->planes >= 4` to determine alpha presence
+- Checkbox is hidden and disabled when no alpha is available
+- Updated XIB file with export-time checkbox control
+- Modified export logic to respect per-export choice
+- Default: Save transparency ON (when available)
+- Never saves transparency if Photoshop doesn't provide it
+
+### Memory Management & Alpha Channel Detection
+
+#### Critical Fixes
+
+- **Fixed memory management crashes** - Complete rewrite of MRC (Manual Reference Counting) handling
+  - Added proper autorelease pool in `HEIC_UI()` function
+  - Proper retention and release of NIB top-level objects
+  - Exception-safe cleanup with @try/@catch/@finally blocks
+  - Fixed memory leaks in `NSUserDefaults` handling
+  - Plugin no longer crashes when clicking OK/Cancel in dialogs
+
+### Major Features
+
+- **Automatic transparency detection** - Plugin automatically handles transparency
+  - Removed manual alpha selector from UI (simplified workflow)
+  - Automatically detects when transparency is present in the document
+  - Only saves transparency when actually present in the image
+  - Follows standard Photoshop plugin conventions (like PNG, TIFF, etc.)
+  - Smart handling: only includes transparency when needed
+
+### Code Quality Improvements
+
+- **Modernized Cocoa APIs:**
+  - `NSControlStateValueOn/Off` vs deprecated `NSOnState/NSOffState`
+  - `NSModalResponseContinue` vs deprecated `NSRunContinuesResponse`
+  - `typedef NS_ENUM` for better Objective-C integration
+- **Modernized C++ code:**
+  - Converted `NULL` → `nullptr` throughout (5+ instances)
+  - Modern CoreFoundation: `CFURLCopyFileSystemPath` vs deprecated `CFURLCopyPath`
+  - Proper `CFRelease()` calls to prevent memory leaks
+  - Suppressed unavoidable deprecation warnings with pragmas
+- **Code cleanup:**
+  - Added comprehensive debug logging (errors only in production)
+  - Clean error handling and validation
+  - Exception-safe patterns with @try/@catch/@finally
+  - Proper MRC memory management patterns
+- **Documentation:**
+  - Consolidated and cleaned up documentation
+  - Removed temporary debug scripts
+  - Clarified that Photoshop has built-in HEIC read support (CC 2018+)
+
+### Removed
+
+- Manual "Alpha" radio buttons in options dialog
+- `opt.alpha` preference setting
+- Temporary debug scripts (check_log.sh, reset_preferences.sh, etc.)
+- Redundant documentation files
+
+### Technical Details
+
+```cpp
+// Transparency detection logic
+const bool save_alpha = (formatRecord->planes >= 4);
+// Photoshop provides RGBA data when transparency is present
+```
+
+Memory management:
+```objective-c
+// Proper MRC pattern
+NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+// ... load NIB and run dialog ...
+[controller release];
+[pool drain];
+```
+
+### CMake Build System & Apple Silicon Support
+
+#### Major Changes
 
 - **Added CMake build system** - Modern, cross-platform build configuration
 - **Apple Silicon (ARM64) support** - Fixed plugin to work on M1/M2/M3 Macs

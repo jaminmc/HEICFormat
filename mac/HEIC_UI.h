@@ -8,14 +8,17 @@
 
 #import <CoreFoundation/CoreFoundation.h>
 
-typedef struct {
+// Plugin options structure (C/Objective-C compatible)
+typedef struct HEICParam {
     int quality;
-    int alpha;
     BOOL saveExif;
     BOOL saveXmp;
     BOOL revealInFinder;
     BOOL quiet;
     BOOL convertToSRGB;
+    // Per-export options (not saved in preferences)
+    BOOL saveTransparency;   // Set at export time based on user choice
+    BOOL hasAlpha;           // Whether document has transparency available
 } HEICParam;
 
 #ifdef __cplusplus
