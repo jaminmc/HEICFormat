@@ -27,7 +27,7 @@ extern "C" {
 
 void loadOptions(HEICParam* opt);
 void saveOptions(const HEICParam* opt);
-bool HEIC_UI(const void *userdata);
+bool HEIC_UI(const void *userdata, HEICParam* opt);
 
 #ifdef __cplusplus
 }

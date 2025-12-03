@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 0.1.2 - December 3, 2025
+
+### Transparency Compositing Fix
+
+- **Fixed black box issue** - When "Save Transparency" is unchecked, layered PSD files now properly composite against white background instead of showing black boxes
+- **Correct transparency matting** - Plugin now sets `transparencyMatting = 3` (white matte) when transparency is disabled, ensuring Photoshop composites layers properly
+- **Per-export transparency control working correctly** - Users can now save layered PSDs without transparency and get properly flattened results
+
+### Technical Fixes
+
+- **Fixed compilation errors** - Resolved template issues with HEICParam struct handling
+- **Correct field usage** - Changed `pluginData` to `revertInfo` for proper Photoshop SDK compliance
+- **Updated function signatures** - Fixed HEIC_UI function to properly pass options between dialog and export
+
+---
+
 ## Version 0.1.1 - December 1, 2025
 
 ### Smart Installer & Transparency Control

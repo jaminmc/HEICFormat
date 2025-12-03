@@ -29,14 +29,20 @@ typedef NS_ENUM(NSInteger, DialogResult) {
 	IBOutlet NSButton *revealInFinderCheckbox;
     IBOutlet NSButton *quietCheckbox;
     IBOutlet NSButton *convertToSRGBCheckbox;
-    
+
     // State
 	DialogResult theResult;
-    
+
+    // Options to modify
+    HEICParam* options;
+    // Flag to track if we own the options memory (for cleanup)
+    BOOL ownsOptions;
+
     // Top-level NIB objects - retained to keep all UI elements alive
     NSArray *topLevelObjects;
 }
 
+- (id)initWithOptions:(HEICParam*)opt;
 - (id)init;
 - (void)dealloc;
 

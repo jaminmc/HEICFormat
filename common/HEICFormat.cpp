@@ -71,7 +71,7 @@ DLLExport MACPASCAL void PluginMain (const int16 selector, FormatRecordPtr forma
 
 	try { 
         if (selector == formatSelectorAbout) {
-            HEIC_UI(NULL);
+            HEIC_UI(NULL, NULL);
         } else {
             sSPBasic = formatParamBlock->sSPBasic;
             gPlugInRef = (SPPluginRef)formatParamBlock->plugInRef;
@@ -119,6 +119,25 @@ DLLExport MACPASCAL void PluginMain (const int16 selector, FormatRecordPtr forma
 
 }
 
+// Specialized function for HEICParam struct
+void DataToHandle(const HEICParam& data, Handle & h) {
+    h = nullptr;
+    size_t s = sizeof(HEICParam);
+    h = sPSHandle->New((int32) s);
+    if (h != nullptr) {
+        Boolean oldLock = FALSE;
+        Ptr p = nullptr;
+        sPSHandle->SetLock(h, true, &p, &oldLock);
+        if (p != nullptr) {
+            memcpy(p, &data, sizeof(HEICParam));
+            sPSHandle->SetLock(h, false, &p, &oldLock);
+        } else {
+            sPSHandle->Dispose(h);
+            h = nullptr;
+        }
+    }
+}
+
 template <class T>
 void DataToHandle(const T& data, Handle & h) {
     h = nullptr;
@@ -138,6 +157,20 @@ void DataToHandle(const T& data, Handle & h) {
             }
         }
     }
+}
+
+bool HandleToStruct(Handle h, HEICParam& data) {
+    if (h != nullptr) {
+        Boolean oldLock = FALSE;
+        Ptr p = nullptr;
+        sPSHandle->SetLock(h, true, &p, &oldLock);
+        if (p != nullptr) {
+            memcpy(&data, p, sizeof(HEICParam));
+            sPSHandle->SetLock(h, false, &p, &oldLock);
+            return true;  // Success
+        }
+    }
+    return false;  // Failed to read from handle
 }
 
 static void myAllocateBuffer(FormatRecordPtr formatRecord, const int32 inSize, BufferID *outBufferID) {
@@ -161,7 +194,13 @@ void DoOptionsStart(FormatRecordPtr formatRecord) {
     HEICParam opt;
     loadOptions(&opt);
     if (!opt.quiet) {
-        HEIC_UI(formatRecord);
+        if (HEIC_UI(formatRecord, &opt)) {
+            // Store the options in pluginData for use during write
+            DataToHandle(opt, formatRecord->revertInfo);
+        }
+    } else {
+        // In quiet mode, store default options
+        DataToHandle(opt, formatRecord->revertInfo);
     }
 }
 
@@ -269,7 +308,12 @@ void DoWriteStart(FormatRecordPtr formatRecord) {
         formatRecord->PluginUsing32BitCoordinates = TRUE;
 
     HEICParam opt;
-    loadOptions(&opt);
+    if (formatRecord->revertInfo && HandleToStruct(formatRecord->revertInfo, opt)) {
+        // Successfully loaded options from revertInfo (set in DoOptionsStart)
+    } else {
+        // Fallback to loading from preferences (handle doesn't exist or can't be read)
+        loadOptions(&opt);
+    }
 
     void* clr_profile_data = nullptr;
     int32 clr_profile_size = formatRecord->documentInfo->iCCprofileSize;
@@ -284,14 +328,14 @@ void DoWriteStart(FormatRecordPtr formatRecord) {
     // Check if Photoshop is providing alpha channels
     // planes >= 4 means Photoshop has RGBA data available
     const bool photoshop_has_alpha = (formatRecord->planes >= 4);
-    
-    // Check if there are actual alpha channels in the document
-    const bool document_has_alpha = (formatRecord->channelPortProcs && formatRecord->documentInfo && formatRecord->documentInfo->alphaChannels);
-    
+
     // Save alpha only if:
     // 1. User chose to save transparency (per-export option)
     // 2. AND Photoshop is providing alpha data (planes >= 4)
     const bool save_alpha = opt.saveTransparency && photoshop_has_alpha;
+
+    // Set transparency matting: when not saving transparency, composite against white background
+    formatRecord->transparencyMatting = save_alpha ? 0 : 3;  // 3 = white matte
 
     int hi_plane, num_channels, bit_depth, plane_bytes;
     int col_bytes;
@@ -321,13 +365,6 @@ void DoWriteStart(FormatRecordPtr formatRecord) {
     formatRecord->theRect.left = formatRecord->theRect32.left = 0;
     formatRecord->theRect.right = formatRecord->theRect32.right = width;
 
-    ReadPixelsProc ReadProc = nullptr;
-    ReadChannelDesc *alpha_channel = nullptr;
-
-    if (formatRecord->channelPortProcs && formatRecord->documentInfo && formatRecord->documentInfo->alphaChannels) {
-        ReadProc = formatRecord->channelPortProcs->readPixelsProc;
-        alpha_channel = formatRecord->documentInfo->alphaChannels;
-    }
 
     const int num_scanlines = height;
     BufferID bufferID = 0;
@@ -372,27 +409,25 @@ void DoWriteStart(FormatRecordPtr formatRecord) {
 
         formatRecord->advanceState();
 
-        // read out alpha channel if Photoshop wants us to save it
-        if (save_alpha && document_has_alpha) {
-            if (ReadProc) {
-                VRect wroteRect;
-                VRect writeRect = { y, 0, high_scanline + 1, width };
-                PSScaling scaling;
-                scaling.sourceRect = scaling.destinationRect = writeRect;
-                PixelMemoryDesc memDesc = {
-                    (char *)formatRecord->data + ((num_channels - 1) * plane_bytes),
-                    formatRecord->rowBytes * 8, col_bytes * 8, 0, bit_depth };
-                ReadProc(alpha_channel->port, &scaling, &writeRect, &memDesc, &wroteRect);
+        // Copy pixel data directly from Photoshop buffer to HEIF plane
+        // Photoshop provides the correct format based on planes setting:
+        // - save_alpha true: planes=4, formatRecord->data contains RGBA
+        // - save_alpha false: planes=3, formatRecord->data contains RGB
+        if (formatRecord->depth == 16) {
+            unsigned16* src = (unsigned16*)formatRecord->data;
+            unsigned16* dest = (unsigned16*)(plane + y * stride);
+            for (int row = 0; row < block_height; ++row) {
+                memcpy(dest, src, formatRecord->rowBytes);
+                src += formatRecord->rowBytes / 2;  // Advance by pixels, not bytes
+                dest += stride / 2;  // HEIF stride in pixels for 16-bit
             }
-
-            if(formatRecord->depth == 16) {
-                int64 samples = (int64)width * (int64)block_height * (int64)num_channels;
-
-                unsigned16 *pix = (unsigned16 *)formatRecord->data;
-                while(samples--) {
-                    *pix = ByteSwap( RGB16ToRGB8(*pix) );
-                    pix++;
-                }
+        } else {
+            unsigned8* src = (unsigned8*)formatRecord->data;
+            unsigned8* dest = plane + y * stride;
+            for (int row = 0; row < block_height; ++row) {
+                memcpy(dest, src, formatRecord->rowBytes);
+                src += formatRecord->rowBytes;
+                dest += stride;
             }
         }
         formatRecord->progressProc(y, height);
@@ -400,31 +435,30 @@ void DoWriteStart(FormatRecordPtr formatRecord) {
     }
 
     formatRecord->progressProc(3, 10);
-    if (formatRecord->depth == 16) {
-        unsigned8* cur_dest_line = plane;
-        const unsigned16* cur_src_line = (const unsigned16*) formatRecord->data;
-        for (size_t i = 0; i < height; ++i) {
-            for (size_t x = 0; x < formatRecord->rowBytes / 2; ++x) {
-                int p = RGB16ToRGB8(cur_src_line[x]) / 256;
-                cur_dest_line[x] = p;
-            }
-            cur_src_line += formatRecord->rowBytes / 2;
-            cur_dest_line += stride;
+
+    // Apply 16-bit to 8-bit conversion if needed
+    if (formatRecord->depth == 16 && save_alpha) {
+        // For RGBA 16-bit, convert in-place
+        unsigned16* pix = (unsigned16*)plane;
+        size_t total_pixels = (size_t)width * (size_t)height * 4;  // RGBA
+        for (size_t i = 0; i < total_pixels; ++i) {
+            pix[i] = ByteSwap(RGB16ToRGB8(pix[i]));
         }
-    } else {
-        unsigned8* cur_dest_line = plane;
-        const unsigned8* cur_src_line = (const unsigned8*) formatRecord->data;
-        for (size_t i = 0; i < height; ++i) {
-            memcpy(cur_dest_line, cur_src_line, formatRecord->rowBytes);
-            cur_src_line += formatRecord->rowBytes;
-            cur_dest_line += stride;
+    } else if (formatRecord->depth == 16 && !save_alpha) {
+        // For RGB 16-bit, convert in-place
+        unsigned16* pix = (unsigned16*)plane;
+        size_t total_pixels = (size_t)width * (size_t)height * 3;  // RGB
+        for (size_t i = 0; i < total_pixels; ++i) {
+            pix[i] = ByteSwap(RGB16ToRGB8(pix[i]));
         }
     }
+    // For 8-bit, data is already in correct format from direct copy above
 
     if (opt.convertToSRGB && formatRecord->canUseICCProfiles && formatRecord->iCCprofileData && formatRecord->iCCprofileSize > 0) {
         cmsHPROFILE profileSrc = cmsOpenProfileFromMem(clr_profile_data, clr_profile_size);
         cmsHPROFILE profileSRGB = cmsCreate_sRGBProfile();
-        cmsHTRANSFORM cms = cmsCreateTransform(profileSrc, TYPE_RGB_8, profileSRGB, TYPE_RGB_8, INTENT_PERCEPTUAL, 0);
+        cmsUInt32Number dataType = save_alpha ? TYPE_RGBA_8 : TYPE_RGB_8;
+        cmsHTRANSFORM cms = cmsCreateTransform(profileSrc, dataType, profileSRGB, dataType, INTENT_PERCEPTUAL, 0);
 
         uint8_t* cur_dest_line = plane;
         for (size_t i = 0; i < height; ++i) {

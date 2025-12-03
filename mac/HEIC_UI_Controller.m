@@ -57,11 +57,14 @@ void saveOptions(const HEICParam* opt) {
 
 @implementation HEIC_UI_Controller
 
-- (id)init {
+- (id)initWithOptions:(HEICParam*)opt {
 	self = [super init];
     if (!self) {
         return nil;
     }
+
+    options = opt;  // Store reference to options to modify
+    ownsOptions = NO;  // By default, we don't own the memory
 
     // Get the plugin bundle
     NSBundle *pluginBundle = [NSBundle bundleForClass:[self class]];
@@ -70,7 +73,7 @@ void saveOptions(const HEICParam* opt) {
         [self release];
         return nil;
     }
-    
+
     // Load the NIB file
     // In MRC, loadNibNamed returns an autoreleased array, and the objects in it are also autoreleased
     // We MUST retain the array to keep all objects alive
@@ -80,10 +83,10 @@ void saveOptions(const HEICParam* opt) {
         [self release];
         return nil;
     }
-    
+
     // Retain the top-level objects - this keeps everything alive
     topLevelObjects = [nibObjects retain];
-    
+
     if (!theWindow) {
         xlog("HEIC_UI_Controller: ERROR - Window outlet not connected\n");
         [topLevelObjects release];
@@ -92,47 +95,85 @@ void saveOptions(const HEICParam* opt) {
         return nil;
     }
 
-    // Load saved options
-    HEICParam opt;
-    loadOptions(&opt);
+    // Load saved options for persistent settings, but use passed options for per-export settings
+    HEICParam savedOpt;
+    loadOptions(&savedOpt);
 
-    // Set UI values
-    [qualityEdit setIntegerValue:opt.quality];
-    [quantizeSlider setIntegerValue:opt.quality];
-    [saveTransparencyCheckbox setState:opt.saveTransparency ? NSControlStateValueOn : NSControlStateValueOff];
-    [saveExifCheckbox setState:opt.saveExif ? NSControlStateValueOn : NSControlStateValueOff];
-    [saveXmpCheckbox setState:opt.saveXmp ? NSControlStateValueOn : NSControlStateValueOff];
-    [revealInFinderCheckbox setState:opt.revealInFinder ? NSControlStateValueOn : NSControlStateValueOff];
-    [quietCheckbox setState:opt.quiet ? NSControlStateValueOn : NSControlStateValueOff];
-    [convertToSRGBCheckbox setState:opt.convertToSRGB ? NSControlStateValueOn : NSControlStateValueOff];
+    // Set UI values - use saved options for persistent settings, passed options for per-export
+    [qualityEdit setIntegerValue:savedOpt.quality];
+    [quantizeSlider setIntegerValue:savedOpt.quality];
+    [saveTransparencyCheckbox setState:opt->saveTransparency ? NSControlStateValueOn : NSControlStateValueOff];
+    [saveExifCheckbox setState:savedOpt.saveExif ? NSControlStateValueOn : NSControlStateValueOff];
+    [saveXmpCheckbox setState:savedOpt.saveXmp ? NSControlStateValueOn : NSControlStateValueOff];
+    [revealInFinderCheckbox setState:savedOpt.revealInFinder ? NSControlStateValueOn : NSControlStateValueOff];
+    [quietCheckbox setState:savedOpt.quiet ? NSControlStateValueOn : NSControlStateValueOff];
+    [convertToSRGBCheckbox setState:savedOpt.convertToSRGB ? NSControlStateValueOn : NSControlStateValueOff];
 
     [self trackQuantQuality:self];
 	[theWindow center];
     theResult = DIALOG_RESULT_INVALID;
-    
+
 	return self;
+}
+
+- (id)init {
+    // For backward compatibility, create heap-allocated default options
+    HEICParam* optPtr = (HEICParam*)malloc(sizeof(HEICParam));
+    if (!optPtr) {
+        [self release];
+        return nil;
+    }
+    loadOptions(optPtr);
+
+    // Initialize with heap-allocated options
+    self = [self initWithOptions:optPtr];
+    if (self) {
+        ownsOptions = YES;  // We own this memory, so we need to free it
+    } else {
+        free(optPtr);
+    }
+
+    return self;
 }
 
 - (void)dealloc {
     // Release the top-level objects array
     [topLevelObjects release];
     topLevelObjects = nil;
-    
+
+    // Free options memory if we own it
+    if (ownsOptions && options) {
+        free(options);
+        options = NULL;
+    }
+
     [super dealloc];
 }
 
 - (IBAction)clickedOK:(id)sender {
-    HEICParam opt;
-    opt.quality = [qualityEdit integerValue];
-    opt.saveTransparency = [saveTransparencyCheckbox state] == NSControlStateValueOn;
-    opt.saveExif = [saveExifCheckbox state] == NSControlStateValueOn;
-    opt.saveXmp = [saveXmpCheckbox state] == NSControlStateValueOn;
-    opt.revealInFinder = [revealInFinderCheckbox state] == NSControlStateValueOn;
-    opt.quiet = [quietCheckbox state] == NSControlStateValueOn;
-    opt.convertToSRGB = [convertToSRGBCheckbox state] == NSControlStateValueOn;
-    
-    saveOptions(&opt);
-    
+    if (options) {
+        // Update the passed-in options
+        options->quality = [qualityEdit integerValue];
+        options->saveTransparency = [saveTransparencyCheckbox state] == NSControlStateValueOn;
+        options->saveExif = [saveExifCheckbox state] == NSControlStateValueOn;
+        options->saveXmp = [saveXmpCheckbox state] == NSControlStateValueOn;
+        options->revealInFinder = [revealInFinderCheckbox state] == NSControlStateValueOn;
+        options->quiet = [quietCheckbox state] == NSControlStateValueOn;
+        options->convertToSRGB = [convertToSRGBCheckbox state] == NSControlStateValueOn;
+    }
+
+    // Save persistent options (excluding per-export options)
+    HEICParam persistentOpt;
+    persistentOpt.quality = [qualityEdit integerValue];
+    persistentOpt.saveExif = [saveExifCheckbox state] == NSControlStateValueOn;
+    persistentOpt.saveXmp = [saveXmpCheckbox state] == NSControlStateValueOn;
+    persistentOpt.revealInFinder = [revealInFinderCheckbox state] == NSControlStateValueOn;
+    persistentOpt.quiet = [quietCheckbox state] == NSControlStateValueOn;
+    persistentOpt.convertToSRGB = [convertToSRGBCheckbox state] == NSControlStateValueOn;
+    // Don't save saveTransparency - it's per-export
+
+    saveOptions(&persistentOpt);
+
 	theResult = DIALOG_RESULT_OK;
     [NSApp stopModal];
 }
